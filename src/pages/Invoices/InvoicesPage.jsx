@@ -26,15 +26,19 @@ import {
   CSpinner,
   CInputGroup,
   CInputGroupText,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilMoney, cilCheckCircle } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilMoney, cilCheckCircle, cilSearch, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import api from '../../api/axios';
 
 const InvoicesPage = () => {
   const [invoices, setInvoices] = useState([]);
+  const [allInvoices, setAllInvoices] = useState([]);
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +46,14 @@ const InvoicesPage = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm();
 
@@ -60,16 +72,20 @@ const InvoicesPage = () => {
     setValue('total', calculatedTotal.toFixed(2));
   }, [subtotal, tax, discount, setValue]);
 
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterStatus, allInvoices]);
+
   const fetchInvoices = async () => {
     try {
       setLoading(true);
       const response = await api.get('/invoices');
       const data = response.data.data || response.data;
-      setInvoices(Array.isArray(data) ? data : data.data || []);
+      setAllInvoices(Array.isArray(data) ? data : data.data || []);
     } catch (error) {
       console.error('Error fetching invoices:', error);
       toast.error('Failed to fetch invoices');
-      setInvoices([]);
+      setAllInvoices([]);
     } finally {
       setLoading(false);
     }
@@ -95,6 +111,44 @@ const InvoicesPage = () => {
       console.error('Error fetching appointments:', error);
       setAppointments([]);
     }
+  };
+
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allInvoices];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(inv => {
+        const patientName = inv.patient
+          ? `${inv.patient.first_name} ${inv.patient.last_name}`.toLowerCase()
+          : '';
+        return (
+          patientName.includes(search) ||
+          inv.invoice_number?.toLowerCase().includes(search)
+        );
+      });
+    }
+    
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter(inv => inv.status === filterStatus);
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setInvoices(paginatedData);
   };
 
   const onSubmit = async (data) => {
@@ -167,6 +221,12 @@ const InvoicesPage = () => {
     reset();
   };
 
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('');
+    setCurrentPage(1);
+  };
+
   const getStatusBadge = (status) => {
     const colors = {
       pending: 'warning',
@@ -187,40 +247,140 @@ const InvoicesPage = () => {
     return `$${parseFloat(amount || 0).toFixed(2)}`;
   };
 
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 7 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
+    );
+  };
+
   return (
     <CRow>
       <CCol xs={12}>
-        <CCard className="mb-4">
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Invoices Management</strong>
-            <CButton color="primary" onClick={() => setModalVisible(true)}>
-              <CIcon icon={cilPlus} className="me-2" />
-              Create Invoice
-            </CButton>
+        <CCard className="mb-4 shadow-sm">
+          <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+            <strong className="fs-5">
+              <CIcon icon={cilMoney} className="me-2" />
+              Invoices Management
+            </strong>
+            <CButtonGroup>
+              <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                <CIcon icon={cilFilter} className="me-2" />Filters
+              </CButton>
+              <CButton color="primary" onClick={() => setModalVisible(true)}>
+                <CIcon icon={cilPlus} className="me-2" />Create Invoice
+              </CButton>
+            </CButtonGroup>
           </CCardHeader>
           <CCardBody>
-            {loading ? (
-              <div className="text-center">
-                <CSpinner color="primary" />
-              </div>
-            ) : (
-              <CTable hover responsive>
+            {/* Search & Filters */}
+            <CRow className="mb-3">
+              <CCol lg={showFilters ? 8 : 12}>
+                <CInputGroup>
+                  <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
+                  <CFormInput
+                    placeholder="Search by patient or invoice number..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                      <CIcon icon={cilX} />
+                    </CButton>
+                  )}
+                </CInputGroup>
+              </CCol>
+              {showFilters && (
+                <CCol lg={4} className="mt-3 mt-lg-0">
+                  <div className="d-flex gap-2">
+                    <CFormSelect value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                      <option value="">All Status</option>
+                      <option value="pending">Pending</option>
+                      <option value="paid">Paid</option>
+                      <option value="partially_paid">Partially Paid</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="cancelled">Cancelled</option>
+                    </CFormSelect>
+                    {filterStatus && (
+                      <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
+                  </div>
+                </CCol>
+              )}
+            </CRow>
+
+            {/* Table */}
+            <div className="table-responsive">
+              <CTable hover className="align-middle">
                 <CTableHead>
                   <CTableRow>
                     <CTableHeaderCell>Invoice #</CTableHeaderCell>
                     <CTableHeaderCell>Patient</CTableHeaderCell>
-                    <CTableHeaderCell>Invoice Date</CTableHeaderCell>
-                    <CTableHeaderCell>Due Date</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-md-table-cell">Invoice Date</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-lg-table-cell">Due Date</CTableHeaderCell>
                     <CTableHeaderCell>Amount</CTableHeaderCell>
                     <CTableHeaderCell>Status</CTableHeaderCell>
                     <CTableHeaderCell>Actions</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {invoices.length === 0 ? (
+                  {loading ? (
+                    <LoadingSkeleton />
+                  ) : invoices.length === 0 ? (
                     <CTableRow>
-                      <CTableDataCell colSpan="7" className="text-center">
-                        No invoices found
+                      <CTableDataCell colSpan="7" className="text-center py-5">
+                        <div className="text-medium-emphasis">
+                          <CIcon icon={cilMoney} size="3xl" className="mb-3 opacity-25" />
+                          <p className="mb-0">No invoices found</p>
+                          {(searchTerm || filterStatus) && (
+                            <small className="text-muted">Try adjusting your filters</small>
+                          )}
+                        </div>
                       </CTableDataCell>
                     </CTableRow>
                   ) : (
@@ -234,46 +394,53 @@ const InvoicesPage = () => {
                             ? `${invoice.patient.first_name} ${invoice.patient.last_name}`
                             : 'N/A'}
                         </CTableDataCell>
-                        <CTableDataCell>{formatDate(invoice.invoice_date)}</CTableDataCell>
-                        <CTableDataCell>{formatDate(invoice.due_date)}</CTableDataCell>
+                        <CTableDataCell className="d-none d-md-table-cell">
+                          {formatDate(invoice.invoice_date)}
+                        </CTableDataCell>
+                        <CTableDataCell className="d-none d-lg-table-cell">
+                          {formatDate(invoice.due_date)}
+                        </CTableDataCell>
                         <CTableDataCell>
                           <strong>{formatCurrency(invoice.total)}</strong>
                         </CTableDataCell>
                         <CTableDataCell>{getStatusBadge(invoice.status)}</CTableDataCell>
                         <CTableDataCell>
-                          {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                          <CButtonGroup size="sm">
+                            {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                              <CButton
+                                color="success"
+                                variant="ghost"
+                                onClick={() => handleMarkAsPaid(invoice)}
+                                title="Mark as Paid"
+                              >
+                                <CIcon icon={cilCheckCircle} />
+                              </CButton>
+                            )}
                             <CButton
-                              color="success"
-                              size="sm"
-                              className="me-2"
-                              onClick={() => handleMarkAsPaid(invoice)}
-                              title="Mark as Paid"
+                              color="info"
+                              variant="ghost"
+                              onClick={() => handleEdit(invoice)}
                             >
-                              <CIcon icon={cilCheckCircle} />
+                              <CIcon icon={cilPencil} />
                             </CButton>
-                          )}
-                          <CButton
-                            color="info"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => handleEdit(invoice)}
-                          >
-                            <CIcon icon={cilPencil} />
-                          </CButton>
-                          <CButton
-                            color="danger"
-                            size="sm"
-                            onClick={() => handleDelete(invoice)}
-                          >
-                            <CIcon icon={cilTrash} />
-                          </CButton>
+                            <CButton
+                              color="danger"
+                              variant="ghost"
+                              onClick={() => handleDelete(invoice)}
+                            >
+                              <CIcon icon={cilTrash} />
+                            </CButton>
+                          </CButtonGroup>
                         </CTableDataCell>
                       </CTableRow>
                     ))
                   )}
                 </CTableBody>
               </CTable>
-            )}
+            </div>
+
+            {/* Pagination */}
+            {!loading && invoices.length > 0 && <PaginationControl />}
           </CCardBody>
         </CCard>
       </CCol>
@@ -458,9 +625,7 @@ const InvoicesPage = () => {
             </CRow>
           </CModalBody>
           <CModalFooter>
-            <CButton color="secondary" onClick={handleCloseModal}>
-              Cancel
-            </CButton>
+            <CButton color="secondary" onClick={handleCloseModal}>Cancel</CButton>
             <CButton color="primary" type="submit">
               {editMode ? 'Update' : 'Create'}
             </CButton>
@@ -469,23 +634,31 @@ const InvoicesPage = () => {
       </CModal>
 
       {/* Delete Confirmation Modal */}
-      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)}>
+      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} alignment="center">
         <CModalHeader>
-          <CModalTitle>Confirm Delete</CModalTitle>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Confirm Delete
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          Are you sure you want to delete invoice{' '}
-          <strong>{selectedInvoice?.invoice_number}</strong>?
+          <p className="mb-0">
+            Are you sure you want to delete invoice{' '}
+            <strong>{selectedInvoice?.invoice_number}</strong>?
+          </p>
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>
-            Cancel
-          </CButton>
-          <CButton color="danger" onClick={confirmDelete}>
-            Delete
-          </CButton>
+          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>Cancel</CButton>
+          <CButton color="danger" onClick={confirmDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </CRow>
   );
 };

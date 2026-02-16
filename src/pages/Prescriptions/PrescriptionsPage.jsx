@@ -24,15 +24,21 @@ import {
   CFormTextarea,
   CBadge,
   CSpinner,
+  CInputGroup,
+  CInputGroupText,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilMedicalCross } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilMedicalCross, cilSearch, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import api from '../../api/axios';
 
 const PrescriptionsPage = () => {
   const [prescriptions, setPrescriptions] = useState([]);
+  const [allPrescriptions, setAllPrescriptions] = useState([]);
   const [patients, setPatients] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [medicalRecords, setMedicalRecords] = useState([]);
@@ -42,6 +48,14 @@ const PrescriptionsPage = () => {
   const [editMode, setEditMode] = useState(false);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
   const [selectedPatientId, setSelectedPatientId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm();
 
@@ -59,16 +73,20 @@ const PrescriptionsPage = () => {
     }
   }, [selectedPatientId]);
 
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterStatus, allPrescriptions]);
+
   const fetchPrescriptions = async () => {
     try {
       setLoading(true);
       const response = await api.get('/prescriptions');
       const data = response.data.data || response.data;
-      setPrescriptions(Array.isArray(data) ? data : data.data || []);
+      setAllPrescriptions(Array.isArray(data) ? data : data.data || []);
     } catch (error) {
       console.error('Error fetching prescriptions:', error);
       toast.error('Failed to fetch prescriptions');
-      setPrescriptions([]);
+      setAllPrescriptions([]);
     } finally {
       setLoading(false);
     }
@@ -105,6 +123,46 @@ const PrescriptionsPage = () => {
       console.error('Error fetching medical records:', error);
       setMedicalRecords([]);
     }
+  };
+
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allPrescriptions];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter((prescription) => {
+        const patientName = prescription.patient
+          ? `${prescription.patient.first_name} ${prescription.patient.last_name}`.toLowerCase()
+          : '';
+        const doctorName = prescription.doctor?.user?.name?.toLowerCase() || '';
+        return (
+          patientName.includes(search) ||
+          doctorName.includes(search) ||
+          prescription.medication_name?.toLowerCase().includes(search)
+        );
+      });
+    }
+    
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter((prescription) => prescription.status === filterStatus);
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setPrescriptions(paginatedData);
   };
 
   const onSubmit = async (data) => {
@@ -176,6 +234,12 @@ const PrescriptionsPage = () => {
     setValue('medical_record_id', '');
   };
 
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('');
+    setCurrentPage(1);
+  };
+
   const getStatusBadge = (status) => {
     const colors = {
       active: 'success',
@@ -190,86 +254,191 @@ const PrescriptionsPage = () => {
     return new Date(dateString).toLocaleDateString();
   };
 
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 9 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
+    );
+  };
+
   return (
     <CRow>
       <CCol xs={12}>
-        <CCard className="mb-4">
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Prescriptions Management</strong>
-            <CButton color="primary" onClick={() => setModalVisible(true)}>
-              <CIcon icon={cilPlus} className="me-2" />
-              Add Prescription
-            </CButton>
+        <CCard className="mb-4 shadow-sm">
+          <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+            <strong className="fs-5">Prescriptions Management</strong>
+            <CButtonGroup>
+              <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                <CIcon icon={cilFilter} className="me-2" />Filters
+              </CButton>
+              <CButton color="primary" onClick={() => setModalVisible(true)}>
+                <CIcon icon={cilPlus} className="me-2" />Add Prescription
+              </CButton>
+            </CButtonGroup>
           </CCardHeader>
           <CCardBody>
-            {loading ? (
-              <div className="text-center">
-                <CSpinner color="primary" />
-              </div>
-            ) : (
-              <CTable hover responsive>
+            {/* Search & Filters */}
+            <CRow className="mb-3">
+              <CCol lg={showFilters ? 8 : 12}>
+                <CInputGroup>
+                  <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
+                  <CFormInput
+                    placeholder="Search by patient, doctor, medication..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                      <CIcon icon={cilX} />
+                    </CButton>
+                  )}
+                </CInputGroup>
+              </CCol>
+              {showFilters && (
+                <CCol lg={4} className="mt-3 mt-lg-0">
+                  <div className="d-flex gap-2">
+                    <CFormSelect value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                      <option value="">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </CFormSelect>
+                    {filterStatus && (
+                      <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
+                  </div>
+                </CCol>
+              )}
+            </CRow>
+
+            {/* Table */}
+            <div className="table-responsive">
+              <CTable hover className="align-middle">
                 <CTableHead>
                   <CTableRow>
-                    <CTableHeaderCell>Date</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-md-table-cell">Date</CTableHeaderCell>
                     <CTableHeaderCell>Patient</CTableHeaderCell>
-                    <CTableHeaderCell>Doctor</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-lg-table-cell">Doctor</CTableHeaderCell>
                     <CTableHeaderCell>Medication</CTableHeaderCell>
-                    <CTableHeaderCell>Dosage</CTableHeaderCell>
-                    <CTableHeaderCell>Frequency</CTableHeaderCell>
-                    <CTableHeaderCell>Duration</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-xl-table-cell">Dosage</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-xl-table-cell">Frequency</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-lg-table-cell">Duration</CTableHeaderCell>
                     <CTableHeaderCell>Status</CTableHeaderCell>
                     <CTableHeaderCell>Actions</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {prescriptions.length === 0 ? (
+                  {loading ? (
+                    <LoadingSkeleton />
+                  ) : prescriptions.length === 0 ? (
                     <CTableRow>
-                      <CTableDataCell colSpan="9" className="text-center">
-                        No prescriptions found
+                      <CTableDataCell colSpan="9" className="text-center py-5">
+                        <div className="text-medium-emphasis">
+                          <CIcon icon={cilMedicalCross} size="3xl" className="mb-3 opacity-25" />
+                          <p className="mb-0">No prescriptions found</p>
+                          {(searchTerm || filterStatus) && (
+                            <small className="text-muted">Try adjusting your filters</small>
+                          )}
+                        </div>
                       </CTableDataCell>
                     </CTableRow>
                   ) : (
                     prescriptions.map((prescription) => (
                       <CTableRow key={prescription.id}>
-                        <CTableDataCell>{formatDate(prescription.prescribed_date)}</CTableDataCell>
-                        <CTableDataCell>
-                          {prescription.patient
-                            ? `${prescription.patient.first_name} ${prescription.patient.last_name}`
-                            : 'N/A'}
+                        <CTableDataCell className="d-none d-md-table-cell">
+                          {formatDate(prescription.prescribed_date)}
                         </CTableDataCell>
                         <CTableDataCell>
-                          {prescription.doctor?.user
+                          <div>
+                            <strong>
+                              {prescription.patient
+                                ? `${prescription.patient.first_name} ${prescription.patient.last_name}`
+                                : 'N/A'}
+                            </strong>
+                            <div className="d-lg-none small text-muted">
+                              {prescription.doctor?.user?.name ? `Dr. ${prescription.doctor.user.name}` : ''}
+                            </div>
+                          </div>
+                        </CTableDataCell>
+                        <CTableDataCell className="d-none d-lg-table-cell">
+                          {prescription.doctor?.user?.name
                             ? `Dr. ${prescription.doctor.user.name}`
                             : 'N/A'}
                         </CTableDataCell>
-                        <CTableDataCell>{prescription.medication_name}</CTableDataCell>
-                        <CTableDataCell>{prescription.dosage}</CTableDataCell>
-                        <CTableDataCell>{prescription.frequency}</CTableDataCell>
-                        <CTableDataCell>{prescription.duration_days} days</CTableDataCell>
+                        <CTableDataCell>
+                          <strong>{prescription.medication_name}</strong>
+                          <div className="d-xl-none small text-muted">
+                            {prescription.dosage} - {prescription.frequency}
+                          </div>
+                        </CTableDataCell>
+                        <CTableDataCell className="d-none d-xl-table-cell">{prescription.dosage}</CTableDataCell>
+                        <CTableDataCell className="d-none d-xl-table-cell">{prescription.frequency}</CTableDataCell>
+                        <CTableDataCell className="d-none d-lg-table-cell">{prescription.duration_days} days</CTableDataCell>
                         <CTableDataCell>{getStatusBadge(prescription.status)}</CTableDataCell>
                         <CTableDataCell>
-                          <CButton
-                            color="info"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => handleEdit(prescription)}
-                          >
-                            <CIcon icon={cilPencil} />
-                          </CButton>
-                          <CButton
-                            color="danger"
-                            size="sm"
-                            onClick={() => handleDelete(prescription)}
-                          >
-                            <CIcon icon={cilTrash} />
-                          </CButton>
+                          <CButtonGroup size="sm">
+                            <CButton color="info" variant="ghost" onClick={() => handleEdit(prescription)}>
+                              <CIcon icon={cilPencil} />
+                            </CButton>
+                            <CButton color="danger" variant="ghost" onClick={() => handleDelete(prescription)}>
+                              <CIcon icon={cilTrash} />
+                            </CButton>
+                          </CButtonGroup>
                         </CTableDataCell>
                       </CTableRow>
                     ))
                   )}
                 </CTableBody>
               </CTable>
-            )}
+            </div>
+
+            {/* Pagination */}
+            {!loading && prescriptions.length > 0 && <PaginationControl />}
           </CCardBody>
         </CCard>
       </CCol>
@@ -460,9 +629,7 @@ const PrescriptionsPage = () => {
             </CRow>
           </CModalBody>
           <CModalFooter>
-            <CButton color="secondary" onClick={handleCloseModal}>
-              Cancel
-            </CButton>
+            <CButton color="secondary" onClick={handleCloseModal}>Cancel</CButton>
             <CButton color="primary" type="submit">
               {editMode ? 'Update' : 'Create'}
             </CButton>
@@ -471,23 +638,31 @@ const PrescriptionsPage = () => {
       </CModal>
 
       {/* Delete Confirmation Modal */}
-      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)}>
+      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} alignment="center">
         <CModalHeader>
-          <CModalTitle>Confirm Delete</CModalTitle>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Confirm Delete
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          Are you sure you want to delete this prescription for{' '}
-          <strong>{selectedPrescription?.medication_name}</strong>?
+          <p className="mb-0">
+            Are you sure you want to delete this prescription for{' '}
+            <strong>{selectedPrescription?.medication_name}</strong>?
+          </p>
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>
-            Cancel
-          </CButton>
-          <CButton color="danger" onClick={confirmDelete}>
-            Delete
-          </CButton>
+          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>Cancel</CButton>
+          <CButton color="danger" onClick={confirmDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </CRow>
   );
 };

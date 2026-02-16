@@ -1,4 +1,3 @@
-// src/pages/MedicalRecords/MedicalRecordsPage.jsx
 import React, { useState, useEffect } from 'react';
 import {
   CCard,
@@ -27,22 +26,33 @@ import {
   CInputGroupText,
   CBadge,
   CSpinner,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilSearch, cilNotes } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilSearch, cilNotes, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import api from '../../api/axios';
 
 const MedicalRecordsPage = () => {
   const [records, setRecords] = useState([]);
+  const [allRecords, setAllRecords] = useState([]);
   const [patients, setPatients] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterPatient, setFilterPatient] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [deleteModal, setDeleteModal] = useState({ show: false, record: null });
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const {
     register,
@@ -57,17 +67,21 @@ const MedicalRecordsPage = () => {
     fetchDoctors();
   }, []);
 
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterPatient, allRecords]);
+
   const fetchRecords = async () => {
     setLoading(true);
     try {
       const response = await api.get('/medical-records');
       let data = response.data.data || response.data;
       if (data && data.data && Array.isArray(data.data)) data = data.data;
-      setRecords(Array.isArray(data) ? data : []);
+      setAllRecords(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching records:', error);
       toast.error('Failed to load medical records');
-      setRecords([]);
+      setAllRecords([]);
     } finally {
       setLoading(false);
     }
@@ -93,6 +107,44 @@ const MedicalRecordsPage = () => {
     } catch (error) {
       console.error('Error fetching doctors:', error);
     }
+  };
+
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allRecords];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter((record) => {
+        const patientName = record.patient ? `${record.patient.first_name} ${record.patient.last_name}`.toLowerCase() : '';
+        const doctorName = record.doctor?.user?.name?.toLowerCase() || '';
+        return (
+          patientName.includes(search) ||
+          doctorName.includes(search) ||
+          record.diagnosis?.toLowerCase().includes(search)
+        );
+      });
+    }
+    
+    // Apply patient filter
+    if (filterPatient) {
+      filtered = filtered.filter((record) => record.patient_id === parseInt(filterPatient));
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setRecords(paginatedData);
   };
 
   const openAddModal = () => {
@@ -164,41 +216,90 @@ const MedicalRecordsPage = () => {
     }
   };
 
-  const filteredRecords = records.filter((record) => {
-    const search = searchTerm.toLowerCase();
-    const patientName = record.patient ? `${record.patient.first_name} ${record.patient.last_name}`.toLowerCase() : '';
-    const doctorName = record.doctor?.user?.name?.toLowerCase() || '';
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterPatient('');
+    setCurrentPage(1);
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 6 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: colIndex === 0 ? '40px' : '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
     return (
-      patientName.includes(search) ||
-      doctorName.includes(search) ||
-      record.diagnosis?.toLowerCase().includes(search)
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
     );
-  });
+  };
 
   return (
     <>
       <CRow>
         <CCol>
-          <CCard>
-            <CCardHeader>
-              <CRow className="align-items-center">
-                <CCol>
-                  <h4 className="mb-0">
-                    <CIcon icon={cilNotes} className="me-2" />
-                    Medical Records
-                  </h4>
-                </CCol>
-                <CCol xs="auto">
-                  <CButton color="primary" onClick={openAddModal}>
-                    <CIcon icon={cilPlus} className="me-2" />
-                    Add Record
-                  </CButton>
-                </CCol>
-              </CRow>
+          <CCard className="mb-4 shadow-sm">
+            <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+              <strong className="fs-5">
+                <CIcon icon={cilNotes} className="me-2" />
+                Medical Records
+              </strong>
+              <CButtonGroup>
+                <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                  <CIcon icon={cilFilter} className="me-2" />Filters
+                </CButton>
+                <CButton color="primary" onClick={openAddModal}>
+                  <CIcon icon={cilPlus} className="me-2" />Add Record
+                </CButton>
+              </CButtonGroup>
             </CCardHeader>
             <CCardBody>
+              {/* Search & Filters */}
               <CRow className="mb-3">
-                <CCol md={6}>
+                <CCol lg={showFilters ? 8 : 12}>
                   <CInputGroup>
                     <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
                     <CFormInput
@@ -206,74 +307,109 @@ const MedicalRecordsPage = () => {
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
+                    {searchTerm && (
+                      <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
                   </CInputGroup>
                 </CCol>
-                <CCol md={6} className="text-end">
-                  <p className="text-medium-emphasis mb-0">
-                    Total Records: <strong>{records.length}</strong>
-                  </p>
-                </CCol>
+                {showFilters && (
+                  <CCol lg={4} className="mt-3 mt-lg-0">
+                    <div className="d-flex gap-2">
+                      <CFormSelect value={filterPatient} onChange={(e) => setFilterPatient(e.target.value)}>
+                        <option value="">All Patients</option>
+                        {patients.map(p => (
+                          <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                        ))}
+                      </CFormSelect>
+                      {filterPatient && (
+                        <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                          <CIcon icon={cilX} />
+                        </CButton>
+                      )}
+                    </div>
+                  </CCol>
+                )}
               </CRow>
 
-              {loading ? (
-                <div className="text-center py-5">
-                  <CSpinner color="primary" />
-                  <p className="mt-2">Loading records...</p>
-                </div>
-              ) : filteredRecords.length === 0 ? (
-                <div className="text-center py-5">
-                  <p className="text-muted">
-                    {searchTerm ? 'No records found.' : 'No medical records yet.'}
-                  </p>
-                </div>
-              ) : (
-                <CTable hover responsive>
+              {/* Table */}
+              <div className="table-responsive">
+                <CTable hover className="align-middle">
                   <CTableHead>
                     <CTableRow>
                       <CTableHeaderCell>ID</CTableHeaderCell>
                       <CTableHeaderCell>Patient</CTableHeaderCell>
-                      <CTableHeaderCell>Doctor</CTableHeaderCell>
-                      <CTableHeaderCell>Visit Date</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-lg-table-cell">Doctor</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-md-table-cell">Visit Date</CTableHeaderCell>
                       <CTableHeaderCell>Diagnosis</CTableHeaderCell>
                       <CTableHeaderCell>Actions</CTableHeaderCell>
                     </CTableRow>
                   </CTableHead>
                   <CTableBody>
-                    {filteredRecords.map((record) => (
-                      <CTableRow key={record.id}>
-                        <CTableDataCell>#{record.id}</CTableDataCell>
-                        <CTableDataCell>
-                          {record.patient ? `${record.patient.first_name} ${record.patient.last_name}` : 'N/A'}
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          {record.doctor?.user?.name || 'N/A'}
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          {new Date(record.visit_date).toLocaleDateString()}
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          <CBadge color="info">{record.diagnosis || 'N/A'}</CBadge>
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          <CButton color="info" size="sm" className="me-2" onClick={() => openEditModal(record)}>
-                            <CIcon icon={cilPencil} />
-                          </CButton>
-                          <CButton color="danger" size="sm" onClick={() => setDeleteModal({ show: true, record })}>
-                            <CIcon icon={cilTrash} />
-                          </CButton>
+                    {loading ? (
+                      <LoadingSkeleton />
+                    ) : records.length === 0 ? (
+                      <CTableRow>
+                        <CTableDataCell colSpan="6" className="text-center py-5">
+                          <div className="text-medium-emphasis">
+                            <CIcon icon={cilNotes} size="3xl" className="mb-3 opacity-25" />
+                            <p className="mb-0">No medical records found</p>
+                            {(searchTerm || filterPatient) && (
+                              <small className="text-muted">Try adjusting your filters</small>
+                            )}
+                          </div>
                         </CTableDataCell>
                       </CTableRow>
-                    ))}
+                    ) : (
+                      records.map((record) => (
+                        <CTableRow key={record.id}>
+                          <CTableDataCell>#{record.id}</CTableDataCell>
+                          <CTableDataCell>
+                            <div>
+                              <strong>
+                                {record.patient ? `${record.patient.first_name} ${record.patient.last_name}` : 'N/A'}
+                              </strong>
+                              <div className="d-lg-none small text-muted">
+                                {record.doctor?.user?.name ? `Dr. ${record.doctor.user.name}` : ''}
+                              </div>
+                            </div>
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-lg-table-cell">
+                            {record.doctor?.user?.name || 'N/A'}
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-md-table-cell">
+                            {formatDate(record.visit_date)}
+                          </CTableDataCell>
+                          <CTableDataCell>
+                            <CBadge color="info">{record.diagnosis || 'N/A'}</CBadge>
+                          </CTableDataCell>
+                          <CTableDataCell>
+                            <CButtonGroup size="sm">
+                              <CButton color="info" variant="ghost" onClick={() => openEditModal(record)}>
+                                <CIcon icon={cilPencil} />
+                              </CButton>
+                              <CButton color="danger" variant="ghost" onClick={() => setDeleteModal({ show: true, record })}>
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                            </CButtonGroup>
+                          </CTableDataCell>
+                        </CTableRow>
+                      ))
+                    )}
                   </CTableBody>
                 </CTable>
-              )}
+              </div>
+
+              {/* Pagination */}
+              {!loading && records.length > 0 && <PaginationControl />}
             </CCardBody>
           </CCard>
         </CCol>
       </CRow>
 
       {/* Add/Edit Modal */}
-      <CModal size="lg" visible={showModal} onClose={() => setShowModal(false)}>
+      <CModal size="lg" visible={showModal} onClose={() => setShowModal(false)} backdrop="static">
         <CModalHeader>
           <CModalTitle>{editingRecord ? 'Edit Medical Record' : 'Add Medical Record'}</CModalTitle>
         </CModalHeader>
@@ -365,14 +501,28 @@ const MedicalRecordsPage = () => {
       </CModal>
 
       {/* Delete Modal */}
-      <CModal visible={deleteModal.show} onClose={() => setDeleteModal({ show: false, record: null })}>
-        <CModalHeader><CModalTitle>Confirm Delete</CModalTitle></CModalHeader>
-        <CModalBody>Are you sure you want to delete this medical record? This action cannot be undone.</CModalBody>
+      <CModal visible={deleteModal.show} onClose={() => setDeleteModal({ show: false, record: null })} alignment="center">
+        <CModalHeader>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Confirm Delete
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-0">Are you sure you want to delete this medical record? This action cannot be undone.</p>
+        </CModalBody>
         <CModalFooter>
           <CButton color="secondary" onClick={() => setDeleteModal({ show: false, record: null })}>Cancel</CButton>
           <CButton color="danger" onClick={handleDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </>
   );
 };

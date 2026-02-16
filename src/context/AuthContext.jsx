@@ -27,6 +27,8 @@ export const AuthProvider = ({ children }) => {
           const response = await authAPI.me();
           console.log('✅ Token is valid, user:', response.user);
           setUser(response.user);
+          // ✅ Update localStorage with fresh user data
+          localStorage.setItem('user', JSON.stringify(response.user));
         } catch (error) {
           console.error('❌ Token invalid, clearing auth');
           localStorage.removeItem('token');
@@ -85,6 +87,22 @@ export const AuthProvider = ({ children }) => {
     console.log('✅ User logged out');
   };
 
+  // ✅ NEW: Update user data (for profile updates, avatar changes, etc.)
+  const updateUser = (updatedData) => {
+    console.log('🔵 AuthContext.updateUser called:', updatedData);
+    
+    // Merge updated data with existing user data
+    const updatedUser = { ...user, ...updatedData };
+    
+    // Update state
+    setUser(updatedUser);
+    
+    // Update localStorage
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    
+    console.log('✅ User data updated:', updatedUser);
+  };
+
   const value = {
     user,
     token,
@@ -92,6 +110,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     loading,
     isAuthenticated: !!token && !!user,
+    updateUser, // ✅ Add this to the context value
   };
 
   return (

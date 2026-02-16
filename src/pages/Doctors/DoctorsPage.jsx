@@ -1,4 +1,3 @@
-// src/pages/Doctors/DoctorsPage.jsx
 import React, { useState, useEffect } from 'react';
 import {
   CCard,
@@ -22,25 +21,35 @@ import {
   CFormInput,
   CFormLabel,
   CFormSelect,
-  CFormTextarea,
   CInputGroup,
   CInputGroupText,
   CBadge,
   CSpinner,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilSearch, cilMedicalCross } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilSearch, cilMedicalCross, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import api from '../../api/axios';
 
 const DoctorsPage = () => {
   const [doctors, setDoctors] = useState([]);
+  const [allDoctors, setAllDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterSpecialization, setFilterSpecialization] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [deleteModal, setDeleteModal] = useState({ show: false, doctor: null });
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const {
     register,
@@ -53,23 +62,59 @@ const DoctorsPage = () => {
     fetchDoctors();
   }, []);
 
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterSpecialization, allDoctors]);
+
   const fetchDoctors = async () => {
     setLoading(true);
     try {
       const response = await api.get('/doctors');
       let data = response.data.data || response.data;
-      // Handle paginated response
-      if (data && data.data && Array.isArray(data.data)) {
-        data = data.data;
-      }
-      setDoctors(Array.isArray(data) ? data : []);
+      if (data && data.data && Array.isArray(data.data)) data = data.data;
+      setAllDoctors(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching doctors:', error);
       toast.error('Failed to load doctors');
-      setDoctors([]);
+      setAllDoctors([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allDoctors];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter((doctor) =>
+        doctor.user?.name?.toLowerCase().includes(search) ||
+        doctor.user?.email?.toLowerCase().includes(search) ||
+        doctor.specialization?.toLowerCase().includes(search) ||
+        doctor.phone?.includes(search)
+      );
+    }
+    
+    // Apply specialization filter
+    if (filterSpecialization) {
+      filtered = filtered.filter((doctor) => doctor.specialization === filterSpecialization);
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setDoctors(paginatedData);
   };
 
   const openAddModal = () => {
@@ -95,7 +140,7 @@ const DoctorsPage = () => {
     reset({
       name: doctor.user?.name || '',
       email: doctor.user?.email || '',
-      password: '', // Leave empty for edit
+      password: '',
       phone: doctor.phone || '',
       specialization: doctor.specialization || '',
       license_number: doctor.license_number || '',
@@ -140,140 +185,206 @@ const DoctorsPage = () => {
     }
   };
 
-  const filteredDoctors = doctors.filter((doctor) => {
-    const search = searchTerm.toLowerCase();
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterSpecialization('');
+    setCurrentPage(1);
+  };
+
+  const specializations = [
+    'Cardiology', 'Dermatology', 'Neurology', 'Pediatrics', 'Orthopedics',
+    'General Medicine', 'Surgery', 'Gynecology', 'Ophthalmology', 'Dentistry', 'ENT', 'Psychiatry'
+  ];
+
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 7 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: colIndex === 0 ? '40px' : '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
     return (
-      doctor.name?.toLowerCase().includes(search) ||
-      doctor.email?.toLowerCase().includes(search) ||
-      doctor.specialization?.toLowerCase().includes(search) ||
-      doctor.phone?.includes(search)
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
     );
-  });
+  };
 
   return (
     <>
       <CRow>
         <CCol>
-          <CCard>
-            <CCardHeader>
-              <CRow className="align-items-center">
-                <CCol>
-                  <h4 className="mb-0">
-                    <CIcon icon={cilMedicalCross} className="me-2" />
-                    Doctors Management
-                  </h4>
-                </CCol>
-                <CCol xs="auto">
-                  <CButton color="success" onClick={openAddModal}>
-                    <CIcon icon={cilPlus} className="me-2" />
-                    Add Doctor
-                  </CButton>
-                </CCol>
-              </CRow>
+          <CCard className="mb-4 shadow-sm">
+            <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+              <strong className="fs-5">
+                <CIcon icon={cilMedicalCross} className="me-2" />
+                Doctors Management
+              </strong>
+              <CButtonGroup>
+                <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                  <CIcon icon={cilFilter} className="me-2" />Filters
+                </CButton>
+                <CButton color="success" onClick={openAddModal}>
+                  <CIcon icon={cilPlus} className="me-2" />Add Doctor
+                </CButton>
+              </CButtonGroup>
             </CCardHeader>
             <CCardBody>
+              {/* Search & Filters */}
               <CRow className="mb-3">
-                <CCol md={6}>
+                <CCol lg={showFilters ? 8 : 12}>
                   <CInputGroup>
-                    <CInputGroupText>
-                      <CIcon icon={cilSearch} />
-                    </CInputGroupText>
+                    <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
                     <CFormInput
-                      placeholder="Search by name, specialization, email..."
+                      placeholder="Search by name, specialization, email, phone..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
+                    {searchTerm && (
+                      <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
                   </CInputGroup>
                 </CCol>
-                <CCol md={6} className="text-end">
-                  <p className="text-medium-emphasis mb-0">
-                    Total Doctors: <strong>{doctors.length}</strong>
-                  </p>
-                </CCol>
+                {showFilters && (
+                  <CCol lg={4} className="mt-3 mt-lg-0">
+                    <div className="d-flex gap-2">
+                      <CFormSelect value={filterSpecialization} onChange={(e) => setFilterSpecialization(e.target.value)}>
+                        <option value="">All Specializations</option>
+                        {specializations.map(spec => (
+                          <option key={spec} value={spec}>{spec}</option>
+                        ))}
+                      </CFormSelect>
+                      {filterSpecialization && (
+                        <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                          <CIcon icon={cilX} />
+                        </CButton>
+                      )}
+                    </div>
+                  </CCol>
+                )}
               </CRow>
 
-              {loading ? (
-                <div className="text-center py-5">
-                  <CSpinner color="success" />
-                  <p className="mt-2">Loading doctors...</p>
-                </div>
-              ) : filteredDoctors.length === 0 ? (
-                <div className="text-center py-5">
-                  <p className="text-muted">
-                    {searchTerm
-                      ? 'No doctors found matching your search.'
-                      : 'No doctors registered yet. Click "Add Doctor" to get started.'}
-                  </p>
-                </div>
-              ) : (
-                <CTable hover responsive>
+              {/* Table */}
+              <div className="table-responsive">
+                <CTable hover className="align-middle">
                   <CTableHead>
                     <CTableRow>
                       <CTableHeaderCell>ID</CTableHeaderCell>
                       <CTableHeaderCell>Name</CTableHeaderCell>
-                      <CTableHeaderCell>Specialization</CTableHeaderCell>
-                      <CTableHeaderCell>Contact</CTableHeaderCell>
-                      <CTableHeaderCell>Fee</CTableHeaderCell>
-                      <CTableHeaderCell>Experience</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-lg-table-cell">Specialization</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-md-table-cell">Contact</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-xl-table-cell">Fee</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-xl-table-cell">Experience</CTableHeaderCell>
                       <CTableHeaderCell>Actions</CTableHeaderCell>
                     </CTableRow>
                   </CTableHead>
                   <CTableBody>
-                    {filteredDoctors.map((doctor) => (
-                      <CTableRow key={doctor.id}>
-                        <CTableDataCell>#{doctor.id}</CTableDataCell>
-                        <CTableDataCell>
-                          <strong>{doctor.user?.name || 'N/A'}</strong>
-                          <br />
-                          <small className="text-muted">{doctor.qualification}</small>
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          <CBadge color="success">{doctor.specialization}</CBadge>
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          {doctor.phone}
-                          <br />
-                          <small className="text-muted">{doctor.user?.email || 'N/A'}</small>
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          ${doctor.consultation_fee || 'N/A'}
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          {doctor.experience_years ? `${doctor.experience_years} yrs` : 'N/A'}
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          <CButton
-                            color="info"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => openEditModal(doctor)}
-                          >
-                            <CIcon icon={cilPencil} />
-                          </CButton>
-                          <CButton
-                            color="danger"
-                            size="sm"
-                            onClick={() => setDeleteModal({ show: true, doctor })}
-                          >
-                            <CIcon icon={cilTrash} />
-                          </CButton>
+                    {loading ? (
+                      <LoadingSkeleton />
+                    ) : doctors.length === 0 ? (
+                      <CTableRow>
+                        <CTableDataCell colSpan="7" className="text-center py-5">
+                          <div className="text-medium-emphasis">
+                            <CIcon icon={cilMedicalCross} size="3xl" className="mb-3 opacity-25" />
+                            <p className="mb-0">No doctors found</p>
+                            {(searchTerm || filterSpecialization) && (
+                              <small className="text-muted">Try adjusting your filters</small>
+                            )}
+                          </div>
                         </CTableDataCell>
                       </CTableRow>
-                    ))}
+                    ) : (
+                      doctors.map((doctor) => (
+                        <CTableRow key={doctor.id}>
+                          <CTableDataCell>#{doctor.id}</CTableDataCell>
+                          <CTableDataCell>
+                            <div>
+                              <strong>{doctor.user?.name || 'N/A'}</strong>
+                              <div className="small text-muted">{doctor.qualification}</div>
+                              <div className="d-lg-none">
+                                <CBadge color="success" className="mt-1">{doctor.specialization}</CBadge>
+                              </div>
+                            </div>
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-lg-table-cell">
+                            <CBadge color="success">{doctor.specialization}</CBadge>
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-md-table-cell">
+                            {doctor.phone && <div>{doctor.phone}</div>}
+                            {doctor.user?.email && <div className="small text-muted">{doctor.user.email}</div>}
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-xl-table-cell">
+                            ${doctor.consultation_fee || 'N/A'}
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-xl-table-cell">
+                            {doctor.experience_years ? `${doctor.experience_years} yrs` : 'N/A'}
+                          </CTableDataCell>
+                          <CTableDataCell>
+                            <CButtonGroup size="sm">
+                              <CButton color="info" variant="ghost" onClick={() => openEditModal(doctor)}>
+                                <CIcon icon={cilPencil} />
+                              </CButton>
+                              <CButton color="danger" variant="ghost" onClick={() => setDeleteModal({ show: true, doctor })}>
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                            </CButtonGroup>
+                          </CTableDataCell>
+                        </CTableRow>
+                      ))
+                    )}
                   </CTableBody>
                 </CTable>
-              )}
+              </div>
+
+              {/* Pagination */}
+              {!loading && doctors.length > 0 && <PaginationControl />}
             </CCardBody>
           </CCard>
         </CCol>
       </CRow>
 
       {/* Add/Edit Modal */}
-      <CModal size="lg" visible={showModal} onClose={() => setShowModal(false)}>
+      <CModal size="lg" visible={showModal} onClose={() => setShowModal(false)} backdrop="static">
         <CModalHeader>
-          <CModalTitle>
-            {editingDoctor ? 'Edit Doctor' : 'Add New Doctor'}
-          </CModalTitle>
+          <CModalTitle>{editingDoctor ? 'Edit Doctor' : 'Add New Doctor'}</CModalTitle>
         </CModalHeader>
         <CForm onSubmit={handleSubmit(onSubmit)}>
           <CModalBody>
@@ -285,9 +396,7 @@ const DoctorsPage = () => {
                   invalid={!!errors.name}
                   placeholder="Dr. John Doe"
                 />
-                {errors.name && (
-                  <div className="invalid-feedback d-block">{errors.name.message}</div>
-                )}
+                {errors.name && <div className="invalid-feedback d-block">{errors.name.message}</div>}
               </CCol>
 
               <CCol md={6}>
@@ -296,17 +405,12 @@ const DoctorsPage = () => {
                   type="email"
                   {...register('email', {
                     required: 'Email is required',
-                    pattern: {
-                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                      message: 'Invalid email address',
-                    },
+                    pattern: { value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i, message: 'Invalid email' },
                   })}
                   invalid={!!errors.email}
                   placeholder="doctor@hospital.com"
                 />
-                {errors.email && (
-                  <div className="invalid-feedback d-block">{errors.email.message}</div>
-                )}
+                {errors.email && <div className="invalid-feedback d-block">{errors.email.message}</div>}
               </CCol>
 
               {!editingDoctor && (
@@ -314,19 +418,14 @@ const DoctorsPage = () => {
                   <CFormLabel>Password *</CFormLabel>
                   <CFormInput
                     type="password"
-                    {...register('password', { 
+                    {...register('password', {
                       required: editingDoctor ? false : 'Password is required',
-                      minLength: {
-                        value: 8,
-                        message: 'Password must be at least 8 characters'
-                      }
+                      minLength: { value: 8, message: 'Password must be at least 8 characters' }
                     })}
                     invalid={!!errors.password}
                     placeholder="Minimum 8 characters"
                   />
-                  {errors.password && (
-                    <div className="invalid-feedback d-block">{errors.password.message}</div>
-                  )}
+                  {errors.password && <div className="invalid-feedback d-block">{errors.password.message}</div>}
                 </CCol>
               )}
 
@@ -337,9 +436,7 @@ const DoctorsPage = () => {
                   invalid={!!errors.phone}
                   placeholder="Phone number"
                 />
-                {errors.phone && (
-                  <div className="invalid-feedback d-block">{errors.phone.message}</div>
-                )}
+                {errors.phone && <div className="invalid-feedback d-block">{errors.phone.message}</div>}
               </CCol>
 
               <CCol md={6}>
@@ -349,9 +446,7 @@ const DoctorsPage = () => {
                   invalid={!!errors.license_number}
                   placeholder="Medical license number"
                 />
-                {errors.license_number && (
-                  <div className="invalid-feedback d-block">{errors.license_number.message}</div>
-                )}
+                {errors.license_number && <div className="invalid-feedback d-block">{errors.license_number.message}</div>}
               </CCol>
 
               <CCol md={6}>
@@ -361,22 +456,11 @@ const DoctorsPage = () => {
                   invalid={!!errors.specialization}
                 >
                   <option value="">Select specialization</option>
-                  <option value="Cardiology">Cardiology</option>
-                  <option value="Dermatology">Dermatology</option>
-                  <option value="Neurology">Neurology</option>
-                  <option value="Pediatrics">Pediatrics</option>
-                  <option value="Orthopedics">Orthopedics</option>
-                  <option value="General Medicine">General Medicine</option>
-                  <option value="Surgery">Surgery</option>
-                  <option value="Gynecology">Gynecology</option>
-                  <option value="Ophthalmology">Ophthalmology</option>
-                  <option value="Dentistry">Dentistry</option>
-                  <option value="ENT">ENT</option>
-                  <option value="Psychiatry">Psychiatry</option>
+                  {specializations.map(spec => (
+                    <option key={spec} value={spec}>{spec}</option>
+                  ))}
                 </CFormSelect>
-                {errors.specialization && (
-                  <div className="invalid-feedback d-block">{errors.specialization.message}</div>
-                )}
+                {errors.specialization && <div className="invalid-feedback d-block">{errors.specialization.message}</div>}
               </CCol>
 
               <CCol md={6}>
@@ -386,16 +470,14 @@ const DoctorsPage = () => {
                   invalid={!!errors.qualification}
                   placeholder="MBBS, MD"
                 />
-                {errors.qualification && (
-                  <div className="invalid-feedback d-block">{errors.qualification.message}</div>
-                )}
+                {errors.qualification && <div className="invalid-feedback d-block">{errors.qualification.message}</div>}
               </CCol>
 
               <CCol md={6}>
                 <CFormLabel>Experience (Years) *</CFormLabel>
                 <CFormInput
                   type="number"
-                  {...register('experience_years', { 
+                  {...register('experience_years', {
                     required: 'Experience is required',
                     min: { value: 0, message: 'Experience cannot be negative' }
                   })}
@@ -403,16 +485,14 @@ const DoctorsPage = () => {
                   placeholder="Years of experience"
                   min="0"
                 />
-                {errors.experience_years && (
-                  <div className="invalid-feedback d-block">{errors.experience_years.message}</div>
-                )}
+                {errors.experience_years && <div className="invalid-feedback d-block">{errors.experience_years.message}</div>}
               </CCol>
 
               <CCol md={6}>
                 <CFormLabel>Consultation Fee ($) *</CFormLabel>
                 <CFormInput
                   type="number"
-                  {...register('consultation_fee', { 
+                  {...register('consultation_fee', {
                     required: 'Consultation fee is required',
                     min: { value: 0, message: 'Fee cannot be negative' }
                   })}
@@ -421,66 +501,42 @@ const DoctorsPage = () => {
                   min="0"
                   step="0.01"
                 />
-                {errors.consultation_fee && (
-                  <div className="invalid-feedback d-block">{errors.consultation_fee.message}</div>
-                )}
-              </CCol>
-
-              <CCol md={6}>
-                <CFormLabel>Department (Optional)</CFormLabel>
-                <CFormInput
-                  {...register('department_id')}
-                  placeholder="Leave empty if no department"
-                  disabled
-                />
-                <small className="text-muted">Department feature coming soon</small>
+                {errors.consultation_fee && <div className="invalid-feedback d-block">{errors.consultation_fee.message}</div>}
               </CCol>
             </CRow>
           </CModalBody>
           <CModalFooter>
-            <CButton color="secondary" onClick={() => setShowModal(false)}>
-              Cancel
-            </CButton>
+            <CButton color="secondary" onClick={() => setShowModal(false)}>Cancel</CButton>
             <CButton color="success" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <CSpinner size="sm" className="me-2" />
-                  Saving...
-                </>
-              ) : editingDoctor ? (
-                'Update Doctor'
-              ) : (
-                'Add Doctor'
-              )}
+              {isSubmitting ? <><CSpinner size="sm" className="me-2" />Saving...</> : editingDoctor ? 'Update Doctor' : 'Add Doctor'}
             </CButton>
           </CModalFooter>
         </CForm>
       </CModal>
 
-      {/* Delete Confirmation Modal */}
-      <CModal
-        visible={deleteModal.show}
-        onClose={() => setDeleteModal({ show: false, doctor: null })}
-      >
+      {/* Delete Modal */}
+      <CModal visible={deleteModal.show} onClose={() => setDeleteModal({ show: false, doctor: null })} alignment="center">
         <CModalHeader>
-          <CModalTitle>Confirm Delete</CModalTitle>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Delete Doctor
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          Are you sure you want to delete Dr. <strong>{deleteModal.doctor?.user?.name}</strong>? 
-          This action cannot be undone.
+          <p className="mb-0">Are you sure you want to delete Dr. <strong>{deleteModal.doctor?.user?.name}</strong>? This action cannot be undone.</p>
         </CModalBody>
         <CModalFooter>
-          <CButton
-            color="secondary"
-            onClick={() => setDeleteModal({ show: false, doctor: null })}
-          >
-            Cancel
-          </CButton>
-          <CButton color="danger" onClick={handleDelete}>
-            Delete
-          </CButton>
+          <CButton color="secondary" onClick={() => setDeleteModal({ show: false, doctor: null })}>Cancel</CButton>
+          <CButton color="danger" onClick={handleDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </>
   );
 };

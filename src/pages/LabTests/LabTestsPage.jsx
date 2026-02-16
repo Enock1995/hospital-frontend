@@ -26,15 +26,19 @@ import {
   CSpinner,
   CInputGroup,
   CInputGroupText,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilBeaker, cilCheckCircle } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilBeaker, cilCheckCircle, cilSearch, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import api from '../../api/axios';
 
 const LabTestsPage = () => {
   const [labTests, setLabTests] = useState([]);
+  const [allLabTests, setAllLabTests] = useState([]);
   const [patients, setPatients] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +47,14 @@ const LabTestsPage = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedLabTest, setSelectedLabTest] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm();
   const { register: registerResult, handleSubmit: handleSubmitResult, reset: resetResult, formState: { errors: errorsResult } } = useForm();
@@ -53,16 +65,20 @@ const LabTestsPage = () => {
     fetchDoctors();
   }, []);
 
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterStatus, allLabTests]);
+
   const fetchLabTests = async () => {
     try {
       setLoading(true);
       const response = await api.get('/lab-tests');
       const data = response.data.data || response.data;
-      setLabTests(Array.isArray(data) ? data : data.data || []);
+      setAllLabTests(Array.isArray(data) ? data : data.data || []);
     } catch (error) {
       console.error('Error fetching lab tests:', error);
       toast.error('Failed to fetch lab tests');
-      setLabTests([]);
+      setAllLabTests([]);
     } finally {
       setLoading(false);
     }
@@ -88,6 +104,46 @@ const LabTestsPage = () => {
       console.error('Error fetching doctors:', error);
       setDoctors([]);
     }
+  };
+
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allLabTests];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(test => {
+        const patientName = test.patient
+          ? `${test.patient.first_name} ${test.patient.last_name}`.toLowerCase()
+          : '';
+        const doctorName = test.doctor?.user?.name?.toLowerCase() || '';
+        return (
+          test.test_name?.toLowerCase().includes(search) ||
+          patientName.includes(search) ||
+          doctorName.includes(search)
+        );
+      });
+    }
+    
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter(test => test.status === filterStatus);
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setLabTests(paginatedData);
   };
 
   const onSubmit = async (data) => {
@@ -175,6 +231,12 @@ const LabTestsPage = () => {
     resetResult();
   };
 
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('');
+    setCurrentPage(1);
+  };
+
   const getStatusBadge = (status) => {
     const colors = {
       pending: 'warning',
@@ -194,101 +256,206 @@ const LabTestsPage = () => {
     return `$${parseFloat(amount || 0).toFixed(2)}`;
   };
 
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 7 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
+    );
+  };
+
   return (
     <CRow>
       <CCol xs={12}>
-        <CCard className="mb-4">
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Lab Tests Management</strong>
-            <CButton color="primary" onClick={() => setModalVisible(true)}>
-              <CIcon icon={cilPlus} className="me-2" />
-              Add Lab Test
-            </CButton>
+        <CCard className="mb-4 shadow-sm">
+          <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+            <strong className="fs-5">
+              <CIcon icon={cilBeaker} className="me-2" />
+              Lab Tests Management
+            </strong>
+            <CButtonGroup>
+              <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                <CIcon icon={cilFilter} className="me-2" />Filters
+              </CButton>
+              <CButton color="primary" onClick={() => setModalVisible(true)}>
+                <CIcon icon={cilPlus} className="me-2" />Add Lab Test
+              </CButton>
+            </CButtonGroup>
           </CCardHeader>
           <CCardBody>
-            {loading ? (
-              <div className="text-center">
-                <CSpinner color="primary" />
-              </div>
-            ) : (
-              <CTable hover responsive>
+            {/* Search & Filters */}
+            <CRow className="mb-3">
+              <CCol lg={showFilters ? 8 : 12}>
+                <CInputGroup>
+                  <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
+                  <CFormInput
+                    placeholder="Search by test name, patient, or doctor..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                      <CIcon icon={cilX} />
+                    </CButton>
+                  )}
+                </CInputGroup>
+              </CCol>
+              {showFilters && (
+                <CCol lg={4} className="mt-3 mt-lg-0">
+                  <div className="d-flex gap-2">
+                    <CFormSelect value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                      <option value="">All Status</option>
+                      <option value="pending">Pending</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </CFormSelect>
+                    {filterStatus && (
+                      <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
+                  </div>
+                </CCol>
+              )}
+            </CRow>
+
+            {/* Table */}
+            <div className="table-responsive">
+              <CTable hover className="align-middle">
                 <CTableHead>
                   <CTableRow>
                     <CTableHeaderCell>Test Name</CTableHeaderCell>
                     <CTableHeaderCell>Patient</CTableHeaderCell>
-                    <CTableHeaderCell>Doctor</CTableHeaderCell>
-                    <CTableHeaderCell>Test Date</CTableHeaderCell>
-                    <CTableHeaderCell>Cost</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-lg-table-cell">Doctor</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-md-table-cell">Test Date</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-lg-table-cell">Cost</CTableHeaderCell>
                     <CTableHeaderCell>Status</CTableHeaderCell>
                     <CTableHeaderCell>Actions</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {labTests.length === 0 ? (
+                  {loading ? (
+                    <LoadingSkeleton />
+                  ) : labTests.length === 0 ? (
                     <CTableRow>
-                      <CTableDataCell colSpan="7" className="text-center">
-                        No lab tests found
+                      <CTableDataCell colSpan="7" className="text-center py-5">
+                        <div className="text-medium-emphasis">
+                          <CIcon icon={cilBeaker} size="3xl" className="mb-3 opacity-25" />
+                          <p className="mb-0">No lab tests found</p>
+                          {(searchTerm || filterStatus) && (
+                            <small className="text-muted">Try adjusting your filters</small>
+                          )}
+                        </div>
                       </CTableDataCell>
                     </CTableRow>
                   ) : (
                     labTests.map((labTest) => (
                       <CTableRow key={labTest.id}>
                         <CTableDataCell>
-                          <strong>{labTest.test_name}</strong>
-                          {labTest.test_description && (
-                            <>
-                              <br />
-                              <small className="text-muted">{labTest.test_description}</small>
-                            </>
-                          )}
+                          <div>
+                            <strong>{labTest.test_name}</strong>
+                            {labTest.test_description && (
+                              <div className="small text-muted">{labTest.test_description}</div>
+                            )}
+                          </div>
                         </CTableDataCell>
                         <CTableDataCell>
                           {labTest.patient
                             ? `${labTest.patient.first_name} ${labTest.patient.last_name}`
                             : 'N/A'}
                         </CTableDataCell>
-                        <CTableDataCell>
+                        <CTableDataCell className="d-none d-lg-table-cell">
                           {labTest.doctor?.user
                             ? `Dr. ${labTest.doctor.user.name}`
                             : 'N/A'}
                         </CTableDataCell>
-                        <CTableDataCell>{formatDate(labTest.test_date)}</CTableDataCell>
-                        <CTableDataCell>{formatCurrency(labTest.cost)}</CTableDataCell>
+                        <CTableDataCell className="d-none d-md-table-cell">
+                          {formatDate(labTest.test_date)}
+                        </CTableDataCell>
+                        <CTableDataCell className="d-none d-lg-table-cell">
+                          {formatCurrency(labTest.cost)}
+                        </CTableDataCell>
                         <CTableDataCell>{getStatusBadge(labTest.status)}</CTableDataCell>
                         <CTableDataCell>
-                          {(labTest.status === 'pending' || labTest.status === 'in_progress') && (
+                          <CButtonGroup size="sm">
+                            {(labTest.status === 'pending' || labTest.status === 'in_progress') && (
+                              <CButton
+                                color="success"
+                                variant="ghost"
+                                onClick={() => handleUpdateResult(labTest)}
+                                title="Update Result"
+                              >
+                                <CIcon icon={cilCheckCircle} />
+                              </CButton>
+                            )}
                             <CButton
-                              color="success"
-                              size="sm"
-                              className="me-2"
-                              onClick={() => handleUpdateResult(labTest)}
-                              title="Update Result"
+                              color="info"
+                              variant="ghost"
+                              onClick={() => handleEdit(labTest)}
                             >
-                              <CIcon icon={cilCheckCircle} />
+                              <CIcon icon={cilPencil} />
                             </CButton>
-                          )}
-                          <CButton
-                            color="info"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => handleEdit(labTest)}
-                          >
-                            <CIcon icon={cilPencil} />
-                          </CButton>
-                          <CButton
-                            color="danger"
-                            size="sm"
-                            onClick={() => handleDelete(labTest)}
-                          >
-                            <CIcon icon={cilTrash} />
-                          </CButton>
+                            <CButton
+                              color="danger"
+                              variant="ghost"
+                              onClick={() => handleDelete(labTest)}
+                            >
+                              <CIcon icon={cilTrash} />
+                            </CButton>
+                          </CButtonGroup>
                         </CTableDataCell>
                       </CTableRow>
                     ))
                   )}
                 </CTableBody>
               </CTable>
-            )}
+            </div>
+
+            {/* Pagination */}
+            {!loading && labTests.length > 0 && <PaginationControl />}
           </CCardBody>
         </CCard>
       </CCol>
@@ -458,9 +625,7 @@ const LabTestsPage = () => {
             </CRow>
           </CModalBody>
           <CModalFooter>
-            <CButton color="secondary" onClick={handleCloseModal}>
-              Cancel
-            </CButton>
+            <CButton color="secondary" onClick={handleCloseModal}>Cancel</CButton>
             <CButton color="primary" type="submit">
               {editMode ? 'Update' : 'Create'}
             </CButton>
@@ -496,34 +661,38 @@ const LabTestsPage = () => {
             </div>
           </CModalBody>
           <CModalFooter>
-            <CButton color="secondary" onClick={handleCloseResultModal}>
-              Cancel
-            </CButton>
-            <CButton color="success" type="submit">
-              Update Result
-            </CButton>
+            <CButton color="secondary" onClick={handleCloseResultModal}>Cancel</CButton>
+            <CButton color="success" type="submit">Update Result</CButton>
           </CModalFooter>
         </CForm>
       </CModal>
 
       {/* Delete Confirmation Modal */}
-      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)}>
+      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} alignment="center">
         <CModalHeader>
-          <CModalTitle>Confirm Delete</CModalTitle>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Confirm Delete
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          Are you sure you want to delete the lab test{' '}
-          <strong>{selectedLabTest?.test_name}</strong>?
+          <p className="mb-0">
+            Are you sure you want to delete the lab test{' '}
+            <strong>{selectedLabTest?.test_name}</strong>?
+          </p>
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>
-            Cancel
-          </CButton>
-          <CButton color="danger" onClick={confirmDelete}>
-            Delete
-          </CButton>
+          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>Cancel</CButton>
+          <CButton color="danger" onClick={confirmDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </CRow>
   );
 };

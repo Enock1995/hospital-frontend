@@ -24,22 +24,35 @@ import {
   CFormTextarea,
   CBadge,
   CSpinner,
-  CFormSwitch,
+  CInputGroup,
+  CInputGroupText,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilBuilding, cilCheckCircle, cilXCircle } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilBuilding, cilCheckCircle, cilXCircle, cilSearch, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import api from '../../api/axios';
 
 const DepartmentsPage = () => {
   const [departments, setDepartments] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm();
 
@@ -48,16 +61,20 @@ const DepartmentsPage = () => {
     fetchDoctors();
   }, []);
 
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterStatus, allDepartments]);
+
   const fetchDepartments = async () => {
     try {
       setLoading(true);
       const response = await api.get('/departments');
       const data = response.data.data || response.data;
-      setDepartments(Array.isArray(data) ? data : data.data || []);
+      setAllDepartments(Array.isArray(data) ? data : data.data || []);
     } catch (error) {
       console.error('Error fetching departments:', error);
       toast.error('Failed to fetch departments');
-      setDepartments([]);
+      setAllDepartments([]);
     } finally {
       setLoading(false);
     }
@@ -74,9 +91,46 @@ const DepartmentsPage = () => {
     }
   };
 
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allDepartments];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(dept => {
+        const headName = dept.head?.user?.name?.toLowerCase() || '';
+        return (
+          dept.name?.toLowerCase().includes(search) ||
+          dept.description?.toLowerCase().includes(search) ||
+          headName.includes(search)
+        );
+      });
+    }
+    
+    // Apply status filter
+    if (filterStatus) {
+      const isActive = filterStatus === 'active';
+      filtered = filtered.filter(dept => dept.is_active === isActive);
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setDepartments(paginatedData);
+  };
+
   const onSubmit = async (data) => {
     try {
-      // Convert is_active to boolean
       data.is_active = data.is_active === 'true' || data.is_active === true;
       
       if (editMode) {
@@ -143,6 +197,12 @@ const DepartmentsPage = () => {
     reset();
   };
 
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('');
+    setCurrentPage(1);
+  };
+
   const getStatusBadge = (isActive) => {
     return (
       <CBadge color={isActive ? 'success' : 'secondary'}>
@@ -151,102 +211,197 @@ const DepartmentsPage = () => {
     );
   };
 
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 5 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
+    );
+  };
+
   return (
     <CRow>
       <CCol xs={12}>
-        <CCard className="mb-4">
-          <CCardHeader className="d-flex justify-content-between align-items-center">
-            <strong>Departments Management</strong>
-            <CButton color="primary" onClick={() => setModalVisible(true)}>
-              <CIcon icon={cilPlus} className="me-2" />
-              Add Department
-            </CButton>
+        <CCard className="mb-4 shadow-sm">
+          <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+            <strong className="fs-5">
+              <CIcon icon={cilBuilding} className="me-2" />
+              Departments Management
+            </strong>
+            <CButtonGroup>
+              <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                <CIcon icon={cilFilter} className="me-2" />Filters
+              </CButton>
+              <CButton color="primary" onClick={() => setModalVisible(true)}>
+                <CIcon icon={cilPlus} className="me-2" />Add Department
+              </CButton>
+            </CButtonGroup>
           </CCardHeader>
           <CCardBody>
-            {loading ? (
-              <div className="text-center">
-                <CSpinner color="primary" />
-              </div>
-            ) : (
-              <CTable hover responsive>
+            {/* Search & Filters */}
+            <CRow className="mb-3">
+              <CCol lg={showFilters ? 8 : 12}>
+                <CInputGroup>
+                  <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
+                  <CFormInput
+                    placeholder="Search by name, description, or head..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                      <CIcon icon={cilX} />
+                    </CButton>
+                  )}
+                </CInputGroup>
+              </CCol>
+              {showFilters && (
+                <CCol lg={4} className="mt-3 mt-lg-0">
+                  <div className="d-flex gap-2">
+                    <CFormSelect value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                      <option value="">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </CFormSelect>
+                    {filterStatus && (
+                      <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
+                  </div>
+                </CCol>
+              )}
+            </CRow>
+
+            {/* Table */}
+            <div className="table-responsive">
+              <CTable hover className="align-middle">
                 <CTableHead>
                   <CTableRow>
                     <CTableHeaderCell>Name</CTableHeaderCell>
-                    <CTableHeaderCell>Head of Department</CTableHeaderCell>
-                    <CTableHeaderCell>Contact</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-lg-table-cell">Head of Department</CTableHeaderCell>
+                    <CTableHeaderCell className="d-none d-md-table-cell">Contact</CTableHeaderCell>
                     <CTableHeaderCell>Status</CTableHeaderCell>
                     <CTableHeaderCell>Actions</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {departments.length === 0 ? (
+                  {loading ? (
+                    <LoadingSkeleton />
+                  ) : departments.length === 0 ? (
                     <CTableRow>
-                      <CTableDataCell colSpan="5" className="text-center">
-                        No departments found
+                      <CTableDataCell colSpan="5" className="text-center py-5">
+                        <div className="text-medium-emphasis">
+                          <CIcon icon={cilBuilding} size="3xl" className="mb-3 opacity-25" />
+                          <p className="mb-0">No departments found</p>
+                          {(searchTerm || filterStatus) && (
+                            <small className="text-muted">Try adjusting your filters</small>
+                          )}
+                        </div>
                       </CTableDataCell>
                     </CTableRow>
                   ) : (
                     departments.map((department) => (
                       <CTableRow key={department.id}>
                         <CTableDataCell>
-                          <strong>{department.name}</strong>
-                          {department.description && (
-                            <>
-                              <br />
-                              <small className="text-muted">{department.description}</small>
-                            </>
-                          )}
+                          <div>
+                            <strong>{department.name}</strong>
+                            {department.description && (
+                              <div className="small text-muted">{department.description}</div>
+                            )}
+                            <div className="d-lg-none small text-muted mt-1">
+                              {department.head?.user ? `Dr. ${department.head.user.name}` : 'Not Assigned'}
+                            </div>
+                          </div>
                         </CTableDataCell>
-                        <CTableDataCell>
+                        <CTableDataCell className="d-none d-lg-table-cell">
                           {department.head?.user
                             ? `Dr. ${department.head.user.name}`
                             : 'Not Assigned'}
                         </CTableDataCell>
-                        <CTableDataCell>
-                          {department.phone && (
-                            <>
-                              {department.phone}
-                              <br />
-                            </>
-                          )}
-                          {department.email && (
-                            <small className="text-muted">{department.email}</small>
-                          )}
+                        <CTableDataCell className="d-none d-md-table-cell">
+                          {department.phone && <div>{department.phone}</div>}
+                          {department.email && <div className="small text-muted">{department.email}</div>}
                           {!department.phone && !department.email && 'N/A'}
                         </CTableDataCell>
                         <CTableDataCell>{getStatusBadge(department.is_active)}</CTableDataCell>
                         <CTableDataCell>
-                          <CButton
-                            color={department.is_active ? 'warning' : 'success'}
-                            size="sm"
-                            className="me-2"
-                            onClick={() => handleToggleStatus(department)}
-                            title={department.is_active ? 'Deactivate' : 'Activate'}
-                          >
-                            <CIcon icon={department.is_active ? cilXCircle : cilCheckCircle} />
-                          </CButton>
-                          <CButton
-                            color="info"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => handleEdit(department)}
-                          >
-                            <CIcon icon={cilPencil} />
-                          </CButton>
-                          <CButton
-                            color="danger"
-                            size="sm"
-                            onClick={() => handleDelete(department)}
-                          >
-                            <CIcon icon={cilTrash} />
-                          </CButton>
+                          <CButtonGroup size="sm">
+                            <CButton
+                              color={department.is_active ? 'warning' : 'success'}
+                              variant="ghost"
+                              onClick={() => handleToggleStatus(department)}
+                              title={department.is_active ? 'Deactivate' : 'Activate'}
+                            >
+                              <CIcon icon={department.is_active ? cilXCircle : cilCheckCircle} />
+                            </CButton>
+                            <CButton
+                              color="info"
+                              variant="ghost"
+                              onClick={() => handleEdit(department)}
+                            >
+                              <CIcon icon={cilPencil} />
+                            </CButton>
+                            <CButton
+                              color="danger"
+                              variant="ghost"
+                              onClick={() => handleDelete(department)}
+                            >
+                              <CIcon icon={cilTrash} />
+                            </CButton>
+                          </CButtonGroup>
                         </CTableDataCell>
                       </CTableRow>
                     ))
                   )}
                 </CTableBody>
               </CTable>
-            )}
+            </div>
+
+            {/* Pagination */}
+            {!loading && departments.length > 0 && <PaginationControl />}
           </CCardBody>
         </CCard>
       </CCol>
@@ -349,9 +504,7 @@ const DepartmentsPage = () => {
             </CRow>
           </CModalBody>
           <CModalFooter>
-            <CButton color="secondary" onClick={handleCloseModal}>
-              Cancel
-            </CButton>
+            <CButton color="secondary" onClick={handleCloseModal}>Cancel</CButton>
             <CButton color="primary" type="submit">
               {editMode ? 'Update' : 'Create'}
             </CButton>
@@ -360,28 +513,36 @@ const DepartmentsPage = () => {
       </CModal>
 
       {/* Delete Confirmation Modal */}
-      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)}>
+      <CModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} alignment="center">
         <CModalHeader>
-          <CModalTitle>Confirm Delete</CModalTitle>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Confirm Delete
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          Are you sure you want to delete the department{' '}
-          <strong>{selectedDepartment?.name}</strong>?
+          <p className="mb-0">
+            Are you sure you want to delete the department{' '}
+            <strong>{selectedDepartment?.name}</strong>?
+          </p>
           {selectedDepartment?.doctors?.length > 0 && (
-            <div className="alert alert-warning mt-3">
+            <div className="alert alert-warning mt-3 mb-0">
               Warning: This department has assigned doctors. Please reassign them first.
             </div>
           )}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>
-            Cancel
-          </CButton>
-          <CButton color="danger" onClick={confirmDelete}>
-            Delete
-          </CButton>
+          <CButton color="secondary" onClick={() => setDeleteModalVisible(false)}>Cancel</CButton>
+          <CButton color="danger" onClick={confirmDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </CRow>
   );
 };

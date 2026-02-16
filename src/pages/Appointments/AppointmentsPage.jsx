@@ -1,4 +1,3 @@
-// src/pages/Appointments/AppointmentsPage.jsx
 import React, { useState, useEffect } from 'react';
 import {
   CCard,
@@ -27,28 +26,43 @@ import {
   CInputGroupText,
   CBadge,
   CSpinner,
+  CButtonGroup,
+  CPagination,
+  CPaginationItem,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilPlus, cilPencil, cilTrash, cilSearch, cilCalendar, cilX } from '@coreui/icons';
+import { cilPlus, cilPencil, cilTrash, cilSearch, cilCalendar, cilX, cilFilter, cilWarning } from '@coreui/icons';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import api from '../../api/axios';
 
 const AppointmentsPage = () => {
   const [appointments, setAppointments] = useState([]);
+  const [allAppointments, setAllAppointments] = useState([]);
   const [patients, setPatients] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [deleteModal, setDeleteModal] = useState({ show: false, appointment: null });
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm();
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    applyFiltersAndPagination();
+  }, [currentPage, searchTerm, filterStatus, allAppointments]);
 
   const extractData = (response) => {
     let data = response.data || response;
@@ -64,15 +78,50 @@ const AppointmentsPage = () => {
         api.get('/patients'),
         api.get('/doctors'),
       ]);
-      setAppointments(extractData(appointmentsRes.data));
+      setAllAppointments(extractData(appointmentsRes.data));
       setPatients(extractData(patientsRes.data));
       setDoctors(extractData(doctorsRes.data));
     } catch (error) {
       console.error('Error:', error);
       toast.error('Failed to load data');
+      setAllAppointments([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFiltersAndPagination = () => {
+    let filtered = [...allAppointments];
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(apt => {
+        const patientName = `${apt.patient?.first_name} ${apt.patient?.last_name}`.toLowerCase();
+        const doctorName = apt.doctor?.user?.name?.toLowerCase() || '';
+        return patientName.includes(search) || doctorName.includes(search);
+      });
+    }
+    
+    // Apply status filter
+    if (filterStatus) {
+      filtered = filtered.filter(apt => apt.status === filterStatus);
+    }
+    
+    // Calculate pagination
+    const total = Math.ceil(filtered.length / itemsPerPage);
+    setTotalPages(total);
+    
+    if (currentPage > total && total > 0) {
+      setCurrentPage(1);
+      return;
+    }
+    
+    // Get paginated data
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+    
+    setAppointments(paginatedData);
   };
 
   const openAddModal = () => {
@@ -147,12 +196,11 @@ const AppointmentsPage = () => {
     }
   };
 
-  const filteredAppointments = appointments.filter(apt => {
-    const search = searchTerm.toLowerCase();
-    const patientName = `${apt.patient?.first_name} ${apt.patient?.last_name}`.toLowerCase();
-    const doctorName = apt.doctor?.user?.name?.toLowerCase() || '';
-    return patientName.includes(search) || doctorName.includes(search);
-  });
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('');
+    setCurrentPage(1);
+  };
 
   const getStatusBadge = (status) => {
     const colors = { 
@@ -166,75 +214,197 @@ const AppointmentsPage = () => {
     return <CBadge color={colors[status] || 'secondary'}>{status?.replace('_', ' ')}</CBadge>;
   };
 
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <>
+      {Array.from({ length: 5 }).map((_, rowIndex) => (
+        <CTableRow key={rowIndex}>
+          {Array.from({ length: 7 }).map((_, colIndex) => (
+            <CTableDataCell key={colIndex}>
+              <div style={{
+                height: '20px', width: '80%',
+                backgroundColor: '#e0e0e0', borderRadius: '4px',
+                animation: 'skeleton-pulse 1.5s infinite ease-in-out'
+              }} />
+            </CTableDataCell>
+          ))}
+        </CTableRow>
+      ))}
+    </>
+  );
+
+  // Pagination
+  const PaginationControl = () => {
+    if (totalPages <= 1) return null;
+    const getPageNumbers = () => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let end = Math.min(totalPages, start + maxVisible - 1);
+      if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    };
+
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-medium-emphasis small">Page {currentPage} of {totalPages}</div>
+        <CPagination>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</CPaginationItem>
+          <CPaginationItem disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>Previous</CPaginationItem>
+          {getPageNumbers().map((page) => (
+            <CPaginationItem key={page} active={page === currentPage} onClick={() => setCurrentPage(page)}>
+              {page}
+            </CPaginationItem>
+          ))}
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>Next</CPaginationItem>
+          <CPaginationItem disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Last</CPaginationItem>
+        </CPagination>
+      </div>
+    );
+  };
+
   return (
     <>
       <CRow>
         <CCol>
-          <CCard>
-            <CCardHeader>
-              <CRow className="align-items-center">
-                <CCol><h4 className="mb-0"><CIcon icon={cilCalendar} className="me-2" />Appointments Management</h4></CCol>
-                <CCol xs="auto"><CButton color="primary" onClick={openAddModal}><CIcon icon={cilPlus} className="me-2" />Book Appointment</CButton></CCol>
-              </CRow>
+          <CCard className="mb-4 shadow-sm">
+            <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+              <strong className="fs-5">
+                <CIcon icon={cilCalendar} className="me-2" />Appointments Management
+              </strong>
+              <CButtonGroup>
+                <CButton color="info" variant="outline" onClick={() => setShowFilters(!showFilters)}>
+                  <CIcon icon={cilFilter} className="me-2" />Filters
+                </CButton>
+                <CButton color="primary" onClick={openAddModal}>
+                  <CIcon icon={cilPlus} className="me-2" />Book Appointment
+                </CButton>
+              </CButtonGroup>
             </CCardHeader>
             <CCardBody>
+              {/* Search & Filters */}
               <CRow className="mb-3">
-                <CCol md={6}>
+                <CCol lg={showFilters ? 8 : 12}>
                   <CInputGroup>
                     <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
-                    <CFormInput placeholder="Search by patient or doctor..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                    <CFormInput 
+                      placeholder="Search by patient or doctor..." 
+                      value={searchTerm} 
+                      onChange={(e) => setSearchTerm(e.target.value)} 
+                    />
+                    {searchTerm && (
+                      <CButton color="secondary" variant="outline" onClick={() => setSearchTerm('')}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
                   </CInputGroup>
                 </CCol>
-                <CCol md={6} className="text-end">
-                  <p className="text-medium-emphasis mb-0">Total Appointments: <strong>{appointments.length}</strong></p>
-                </CCol>
+                {showFilters && (
+                  <CCol lg={4} className="mt-3 mt-lg-0">
+                    <div className="d-flex gap-2">
+                      <CFormSelect value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                        <option value="">All Status</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                        <option value="no_show">No Show</option>
+                      </CFormSelect>
+                      {filterStatus && (
+                        <CButton color="secondary" variant="outline" onClick={clearFilters}>
+                          <CIcon icon={cilX} />
+                        </CButton>
+                      )}
+                    </div>
+                  </CCol>
+                )}
               </CRow>
 
-              {loading ? (
-                <div className="text-center py-5"><CSpinner color="primary" /><p className="mt-2">Loading...</p></div>
-              ) : filteredAppointments.length === 0 ? (
-                <div className="text-center py-5"><p className="text-muted">{searchTerm ? 'No appointments found.' : 'No appointments yet. Book your first appointment!'}</p></div>
-              ) : (
-                <CTable hover responsive>
+              {/* Table */}
+              <div className="table-responsive">
+                <CTable hover className="align-middle">
                   <CTableHead>
                     <CTableRow>
                       <CTableHeaderCell>ID</CTableHeaderCell>
                       <CTableHeaderCell>Patient</CTableHeaderCell>
-                      <CTableHeaderCell>Doctor</CTableHeaderCell>
-                      <CTableHeaderCell>Date</CTableHeaderCell>
-                      <CTableHeaderCell>Time</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-lg-table-cell">Doctor</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-md-table-cell">Date</CTableHeaderCell>
+                      <CTableHeaderCell className="d-none d-md-table-cell">Time</CTableHeaderCell>
                       <CTableHeaderCell>Status</CTableHeaderCell>
                       <CTableHeaderCell>Actions</CTableHeaderCell>
                     </CTableRow>
                   </CTableHead>
                   <CTableBody>
-                    {filteredAppointments.map(apt => (
-                      <CTableRow key={apt.id}>
-                        <CTableDataCell>#{apt.id}</CTableDataCell>
-                        <CTableDataCell><strong>{apt.patient?.first_name} {apt.patient?.last_name}</strong></CTableDataCell>
-                        <CTableDataCell>{apt.doctor?.user?.name || 'N/A'}<br /><small className="text-muted">{apt.doctor?.specialization}</small></CTableDataCell>
-                        <CTableDataCell>{apt.appointment_date ? apt.appointment_date.split(' ')[0] : 'N/A'}</CTableDataCell>
-                        <CTableDataCell>{apt.appointment_date ? apt.appointment_date.split(' ')[1]?.substring(0, 5) : 'N/A'}</CTableDataCell>
-                        <CTableDataCell>{getStatusBadge(apt.status)}</CTableDataCell>
-                        <CTableDataCell>
-                          <CButton color="info" size="sm" className="me-2" onClick={() => openEditModal(apt)}><CIcon icon={cilPencil} /></CButton>
-                          {apt.status === 'scheduled' && (
-                            <CButton color="warning" size="sm" className="me-2" onClick={() => handleCancel(apt.id)}><CIcon icon={cilX} /></CButton>
-                          )}
-                          <CButton color="danger" size="sm" onClick={() => setDeleteModal({ show: true, appointment: apt })}><CIcon icon={cilTrash} /></CButton>
+                    {loading ? (
+                      <LoadingSkeleton />
+                    ) : appointments.length === 0 ? (
+                      <CTableRow>
+                        <CTableDataCell colSpan="7" className="text-center py-5">
+                          <div className="text-medium-emphasis">
+                            <CIcon icon={cilCalendar} size="3xl" className="mb-3 opacity-25" />
+                            <p className="mb-0">No appointments found</p>
+                            {(searchTerm || filterStatus) && (
+                              <small className="text-muted">Try adjusting your filters</small>
+                            )}
+                          </div>
                         </CTableDataCell>
                       </CTableRow>
-                    ))}
+                    ) : (
+                      appointments.map(apt => (
+                        <CTableRow key={apt.id}>
+                          <CTableDataCell>#{apt.id}</CTableDataCell>
+                          <CTableDataCell>
+                            <div>
+                              <strong>{apt.patient?.first_name} {apt.patient?.last_name}</strong>
+                              <div className="d-lg-none small text-muted">
+                                {apt.doctor?.user?.name || 'N/A'}
+                              </div>
+                            </div>
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-lg-table-cell">
+                            {apt.doctor?.user?.name || 'N/A'}
+                            <br /><small className="text-muted">{apt.doctor?.specialization}</small>
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-md-table-cell">
+                            {apt.appointment_date ? apt.appointment_date.split(' ')[0] : 'N/A'}
+                          </CTableDataCell>
+                          <CTableDataCell className="d-none d-md-table-cell">
+                            {apt.appointment_date ? apt.appointment_date.split(' ')[1]?.substring(0, 5) : 'N/A'}
+                          </CTableDataCell>
+                          <CTableDataCell>{getStatusBadge(apt.status)}</CTableDataCell>
+                          <CTableDataCell>
+                            <CButtonGroup size="sm">
+                              <CButton color="info" variant="ghost" onClick={() => openEditModal(apt)}>
+                                <CIcon icon={cilPencil} />
+                              </CButton>
+                              {apt.status === 'scheduled' && (
+                                <CButton color="warning" variant="ghost" onClick={() => handleCancel(apt.id)}>
+                                  <CIcon icon={cilX} />
+                                </CButton>
+                              )}
+                              <CButton color="danger" variant="ghost" onClick={() => setDeleteModal({ show: true, appointment: apt })}>
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                            </CButtonGroup>
+                          </CTableDataCell>
+                        </CTableRow>
+                      ))
+                    )}
                   </CTableBody>
                 </CTable>
-              )}
+              </div>
+
+              {/* Pagination */}
+              {!loading && appointments.length > 0 && <PaginationControl />}
             </CCardBody>
           </CCard>
         </CCol>
       </CRow>
 
       {/* Add/Edit Modal */}
-      <CModal size="lg" visible={showModal} onClose={() => setShowModal(false)}>
+      <CModal size="lg" visible={showModal} onClose={() => setShowModal(false)} backdrop="static">
         <CModalHeader><CModalTitle>{editingAppointment ? 'Edit Appointment' : 'Book New Appointment'}</CModalTitle></CModalHeader>
         <CForm onSubmit={handleSubmit(onSubmit)}>
           <CModalBody>
@@ -320,14 +490,26 @@ const AppointmentsPage = () => {
       </CModal>
 
       {/* Delete Modal */}
-      <CModal visible={deleteModal.show} onClose={() => setDeleteModal({ show: false, appointment: null })}>
-        <CModalHeader><CModalTitle>Confirm Delete</CModalTitle></CModalHeader>
-        <CModalBody>Delete this appointment? This cannot be undone.</CModalBody>
+      <CModal visible={deleteModal.show} onClose={() => setDeleteModal({ show: false, appointment: null })} alignment="center">
+        <CModalHeader>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2 text-danger" />Confirm Delete
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody><p className="mb-0">Delete this appointment? This cannot be undone.</p></CModalBody>
         <CModalFooter>
           <CButton color="secondary" onClick={() => setDeleteModal({ show: false, appointment: null })}>Cancel</CButton>
           <CButton color="danger" onClick={handleDelete}>Delete</CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .table tbody tr { transition: background-color 0.15s ease; }
+        .table tbody tr:hover { background-color: rgba(0, 0, 0, 0.02) !important; }
+        .btn { transition: all 0.2s ease !important; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+      `}</style>
     </>
   );
 };
